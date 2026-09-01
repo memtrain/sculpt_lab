@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SculptLab Offline</title>
+<style>
+:root{--bg:#14171b;--panel:#20242a;--line:#363c45;--txt:#eef2f5;--muted:#9aa4af;--accent:#f28c35}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--txt);font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+#app{height:100%;display:grid;grid-template-rows:48px 1fr 28px}
+header{display:flex;align-items:center;gap:8px;padding:0 10px;background:#1a1d21;border-bottom:1px solid var(--line)}
+.brand{font-weight:800;margin-right:8px}.brand b{color:var(--accent)}
+button{background:#292e35;border:1px solid var(--line);color:var(--txt);border-radius:7px;padding:7px 10px;cursor:pointer}
+button:hover{border-color:#69727d} button.active{background:#4a3322;border-color:var(--accent)}
+.spacer{flex:1}
+.main{min-height:0;display:grid;grid-template-columns:76px 1fr 248px}
+.left,.right{background:#1b1f24}
+.left{border-right:1px solid var(--line);padding:8px;display:flex;flex-direction:column;gap:7px}
+.tool{height:52px;padding:5px 3px;font-size:11px;display:flex;flex-direction:column;justify-content:center;align-items:center}
+.tool span{font-size:20px}
+#view{position:relative;min-width:0;min-height:0;background:radial-gradient(circle at 50% 42%,#3b4149 0,#24282e 35%,#111317 100%)}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#ring{position:absolute;border:1px solid #fff;border-radius:50%;pointer-events:none;display:none;mix-blend-mode:difference}
+.hint{position:absolute;left:12px;bottom:10px;background:#0008;padding:6px 8px;border-radius:6px;font-size:11px;color:#c8d0d8;pointer-events:none}
+.right{border-left:1px solid var(--line);padding:10px;overflow:auto}
+.sec{border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-bottom:10px;background:#21252b}
+.sec h3{margin:0;padding:8px 10px;font-size:12px;background:#292e35}
+.body{padding:9px}
+.row{display:grid;grid-template-columns:84px 1fr;gap:8px;align-items:center;margin:8px 0;font-size:12px}
+.row label{color:#b9c1ca} input[type=range]{width:100%;accent-color:var(--accent)}
+.val{font-size:10px;color:#ffd1aa;text-align:right}
+select{width:100%;background:#171a1e;color:white;border:1px solid var(--line);padding:5px;border-radius:5px}
+.full{width:100%}
+footer{display:flex;gap:18px;align-items:center;padding:0 10px;border-top:1px solid var(--line);font-size:11px;color:#9ea8b2;background:#16191d}
+#status{color:#e5e9ee}
+@media(max-width:850px){.main{grid-template-columns:64px 1fr}.right{position:absolute;right:0;top:48px;bottom:28px;width:220px;z-index:10;opacity:.96}}
+</style>
+</head>
+<body>
+<div id="app">
+<header>
+  <div class="brand"><b>Sculpt</b>Lab Offline</div>
+  <button id="sphereBtn">Sphere</button>
+  <button id="undoBtn">↶ Undo</button>
+  <button id="redoBtn">↷ Redo</button>
+  <div class="spacer"></div>
+  <button id="frameBtn">Frame</button>
+  <button id="exportBtn">Export OBJ</button>
+</header>
+<div class="main">
+  <aside class="left">
+    <button class="tool active" data-tool="inflate"><span>⬆</span>Inflate</button>
+    <button class="tool" data-tool="deflate"><span>⬇</span>Deflate</button>
+    <button class="tool" data-tool="smooth"><span>≈</span>Smooth</button>
+    <button class="tool" data-tool="flatten"><span>▰</span>Flatten</button>
+    <button class="tool" data-tool="move"><span>✋</span>Move</button>
+  </aside>
+  <div id="view">
+    <canvas id="gl"></canvas>
+    <div id="ring"></div>
+    <div class="hint">左鍵：雕刻　Alt+左鍵：反向　右鍵：旋轉　滾輪：縮放</div>
+  </div>
+  <aside class="right">
+    <div class="sec"><h3>BRUSH</h3><div class="body">
+      <div class="row"><label>Radius</label><div><input id="radius" type="range" min="20" max="180" value="85"><div id="radiusV" class="val"></div></div></div>
+      <div class="row"><label>Strength</label><div><input id="strength" type="range" min="1" max="100" value="34"><div id="strengthV" class="val"></div></div></div>
+      <div class="row"><label>Falloff</label><div><input id="falloff" type="range" min="1" max="5" step=".1" value="2.2"><div id="falloffV" class="val"></div></div></div>
+      <div class="row"><label>Symmetry X</label><input id="sym" type="checkbox" checked></div>
+    </div></div>
+    <div class="sec"><h3>VIEW</h3><div class="body">
+      <div class="row"><label>Wireframe</label><input id="wire" type="checkbox"></div>
+      <div class="row"><label>Shading</label><select id="shade"><option value="lit">Lit</option><option value="normal">Normals</option><option value="matcap">Matcap-like</option></select></div>
+      <div class="row"><label>Resolution</label><select id="res"><option value="32">Low</option><option value="48" selected>Medium</option><option value="64">High</option><option value="80">Very High</option></select></div>
+      <button id="rebuildBtn" class="full">Rebuild Mesh</button>
+    </div></div>
+    <div class="sec"><h3>MODEL</h3><div class="body">
+      <button id="resetBtn" class="full">Reset Shape</button>
+    </div></div>
+  </aside>
+</div>
+<footer><span id="status">Ready</span><span id="stats">Vertices: 0</span><span>Standalone WebGL</span></footer>
+</div>
+
+<script>
+(()=>{
+"use strict";
+const canvas=document.getElementById('gl'), view=document.getElementById('view');
+const gl=canvas.getContext('webgl',{antialias:true,preserveDrawingBuffer:false});
+if(!gl){alert("此瀏覽器無法啟用 WebGL");return;}
+
+const VS=`
+attribute vec3 aPos;
+attribute vec3 aNor;
+uniform mat4 uMVP;
+uniform mat4 uMV;
+varying vec3 vN;
+varying vec3 vP;
+void main(){
+  vec4 p=uMV*vec4(aPos,1.0);
+  vP=p.xyz;
+  vN=normalize(mat3(uMV)*aNor);
+  gl_Position=uMVP*vec4(aPos,1.0);
+}`;
+const FS=`
+precision mediump float;
+varying vec3 vN;
+varying vec3 vP;
+uniform int uMode;
+void main(){
+  vec3 n=normalize(vN);
+  if(uMode==1){gl_FragColor=vec4(n*.5+.5,1.0);return;}
+  float d=max(dot(n,normalize(vec3(.35,.55,.75))),0.0);
+  float r=max(dot(n,normalize(vec3(-.65,.2,-.7))),0.0);
+  vec3 base=vec3(.72,.50,.37);
+  if(uMode==2){
+    float f=.30+.70*pow(max(0.0,1.0-length(n.xy-vec2(.18,.15))*.75),1.5);
+    gl_FragColor=vec4(base*f+vec3(.18),1.0);
+  }else{
+    gl_FragColor=vec4(base*(.30+.85*d)+vec3(.16,.07,.035)*r,1.0);
+  }
+}`;
+function shader(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw gl.getShaderInfoLog(s);return s}
+const prog=gl.createProgram();gl.attachShader(prog,shader(gl.VERTEX_SHADER,VS));gl.attachShader(prog,shader(gl.FRAGMENT_SHADER,FS));gl.linkProgram(prog);gl.useProgram(prog);
+
+const loc={
+ pos:gl.getAttribLocation(prog,'aPos'), nor:gl.getAttribLocation(prog,'aNor'),
+ mvp:gl.getUniformLocation(prog,'uMVP'), mv:gl.getUniformLocation(prog,'uMV'),
+ mode:gl.getUniformLocation(prog,'uMode')
+};
+const pbuf=gl.createBuffer(), nbuf=gl.createBuffer(), ibuf=gl.createBuffer(), lbuf=gl.createBuffer();
+
+let positions=[], normals=[], indices=[], edges=[], adjacency=[], basePos=[];
+let yaw=0.35,pitch=0.12,dist=4.0, tool='inflate', sculpting=false,rotating=false;
+let lastX=0,lastY=0, history=[],future=[],strokeStart=null;
+
+function makeSphere(seg){
+  positions=[];indices=[];adjacency=[];
+  const rings=Math.max(16,Math.floor(seg*.62));
+  for(let y=0;y<=rings;y++){
+    const v=y/rings, ph=v*Math.PI;
+    for(let x=0;x<=seg;x++){
+      const u=x/seg, th=u*Math.PI*2;
+      const s=Math.sin(ph);
+      positions.push(1.25*s*Math.cos(th),1.25*Math.cos(ph),1.25*s*Math.sin(th));
+    }
+  }
+  const row=seg+1;
+  for(let y=0;y<rings;y++)for(let x=0;x<seg;x++){
+    const a=y*row+x,b=a+1,c=a+row,d=c+1;
+    if(y!==0) indices.push(a,c,b);
+    if(y!==rings-1) indices.push(b,c,d);
+  }
+  buildAdj();
+  computeNormals();
+  basePos=positions.slice(); history=[];future=[];
+  upload();
+  document.getElementById('stats').textContent=`Vertices: ${(positions.length/3).toLocaleString()}  Triangles: ${(indices.length/3).toLocaleString()}`;
+}
+function buildAdj(){
+  const n=positions.length/3; adjacency=Array.from({length:n},()=>new Set());
+  for(let i=0;i<indices.length;i+=3){
+    const a=indices[i],b=indices[i+1],c=indices[i+2];
+    adjacency[a].add(b);adjacency[a].add(c);adjacency[b].add(a);adjacency[b].add(c);adjacency[c].add(a);adjacency[c].add(b);
+  }
+  edges=[];
+  const seen=new Set();
+  for(let i=0;i<indices.length;i+=3){
+    const tri=[indices[i],indices[i+1],indices[i+2]];
+    for(let e=0;e<3;e++){
+      let a=tri[e],b=tri[(e+1)%3]; if(a>b){let t=a;a=b;b=t}
+      const k=a+','+b;if(!seen.has(k)){seen.add(k);edges.push(a,b)}
+    }
+  }
+}
+function computeNormals(){
+  normals=new Array(positions.length).fill(0);
+  for(let i=0;i<indices.length;i+=3){
+    let ia=indices[i]*3,ib=indices[i+1]*3,ic=indices[i+2]*3;
+    let ax=positions[ia],ay=positions[ia+1],az=positions[ia+2];
+    let bx=positions[ib],by=positions[ib+1],bz=positions[ib+2];
+    let cx=positions[ic],cy=positions[ic+1],cz=positions[ic+2];
+    let abx=bx-ax,aby=by-ay,abz=bz-az, acx=cx-ax,acy=cy-ay,acz=cz-az;
+    let nx=aby*acz-abz*acy, ny=abz*acx-abx*acz, nz=abx*acy-aby*acx;
+    normals[ia]+=nx;normals[ia+1]+=ny;normals[ia+2]+=nz;
+    normals[ib]+=nx;normals[ib+1]+=ny;normals[ib+2]+=nz;
+    normals[ic]+=nx;normals[ic+1]+=ny;normals[ic+2]+=nz;
+  }
+  for(let i=0;i<normals.length;i+=3){let x=normals[i],y=normals[i+1],z=normals[i+2],l=Math.hypot(x,y,z)||1;normals[i]=x/l;normals[i+1]=y/l;normals[i+2]=z/l}
+}
+function upload(){
+  gl.bindBuffer(gl.ARRAY_BUFFER,pbuf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(positions),gl.DYNAMIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER,nbuf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(normals),gl.DYNAMIC_DRAW);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ibuf);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint16Array(indices),gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,lbuf);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint16Array(edges),gl.STATIC_DRAW);
+}
+function updateBuffers(){
+  computeNormals();
+  gl.bindBuffer(gl.ARRAY_BUFFER,pbuf);gl.bufferSubData(gl.ARRAY_BUFFER,0,new Float32Array(positions));
+  gl.bindBuffer(gl.ARRAY_BUFFER,nbuf);gl.bufferSubData(gl.ARRAY_BUFFER,0,new Float32Array(normals));
+}
+const mat4={
+ identity:()=>[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1],
+ mul:(a,b)=>{let o=new Array(16).fill(0);for(let c=0;c<4;c++)for(let r=0;r<4;r++)for(let k=0;k<4;k++)o[c*4+r]+=a[k*4+r]*b[c*4+k];return o},
+ perspective:(f,a,n,fa)=>{let t=1/Math.tan(f/2),nf=1/(n-fa);return[t/a,0,0,0,0,t,0,0,0,0,(fa+n)*nf,-1,0,0,2*fa*n*nf,0]},
+ look:(eye,target,up)=>{
+   let zx=eye[0]-target[0],zy=eye[1]-target[1],zz=eye[2]-target[2],zl=Math.hypot(zx,zy,zz);zx/=zl;zy/=zl;zz/=zl;
+   let xx=up[1]*zz-up[2]*zy,xy=up[2]*zx-up[0]*zz,xz=up[0]*zy-up[1]*zx,xl=Math.hypot(xx,xy,xz);xx/=xl;xy/=xl;xz/=xl;
+   let yx=zy*xz-zz*xy,yy=zz*xx-zx*xz,yz=zx*xy-zy*xx;
+   return[xx,yx,zx,0,xy,yy,zy,0,xz,yz,zz,0,-(xx*eye[0]+xy*eye[1]+xz*eye[2]),-(yx*eye[0]+yy*eye[1]+yz*eye[2]),-(zx*eye[0]+zy*eye[1]+zz*eye[2]),1];
+ }}
+function cameraEye(){return[dist*Math.sin(yaw)*Math.cos(pitch),dist*Math.sin(pitch),dist*Math.cos(yaw)*Math.cos(pitch)]}
+function project(x,y,z,mvp,w,h){
+  let X=mvp[0]*x+mvp[4]*y+mvp[8]*z+mvp[12],Y=mvp[1]*x+mvp[5]*y+mvp[9]*z+mvp[13],W=mvp[3]*x+mvp[7]*y+mvp[11]*z+mvp[15];
+  if(W<=0)return null;return[(X/W*.5+.5)*w,(1-(Y/W*.5+.5))*h,W];
+}
+function getMatrices(){
+  const w=canvas.width,h=canvas.height, eye=cameraEye(), mv=mat4.look(eye,[0,0,0],[0,1,0]), p=mat4.perspective(Math.PI/4,w/h,.01,100);
+  return{mv,mvp:mat4.mul(p,mv),eye};
+}
+function sculpt(mx,my,alt,dx,dy){
+  const rad=+radius.value, str=(+strength.value/100)*.055, fall=+falloff.value, {mvp,eye}=getMatrices(), w=canvas.width/devicePixelRatio,h=canvas.height/devicePixelRatio;
+  let affected=[];
+  for(let i=0;i<positions.length;i+=3){
+    const pr=project(positions[i],positions[i+1],positions[i+2],mvp,w,h);if(!pr)continue;
+    const d=Math.hypot(pr[0]-mx,pr[1]-my);if(d>rad)continue;
+    const vi=i/3;
+    const vx=positions[i]-eye[0],vy=positions[i+1]-eye[1],vz=positions[i+2]-eye[2];
+    const facing=normals[i]*(-vx)+normals[i+1]*(-vy)+normals[i+2]*(-vz);
+    if(facing<0)continue;
+    affected.push([vi,Math.pow(1-d/rad,fall)]);
+  }
+  if(!affected.length)return;
+  if(tool==='smooth'){
+    const copy=positions.slice();
+    for(const [vi,wgt] of affected){
+      let sx=0,sy=0,sz=0,c=0;
+      for(const nb of adjacency[vi]){sx+=copy[nb*3];sy+=copy[nb*3+1];sz+=copy[nb*3+2];c++}
+      if(c){let k=Math.min(.45,str*8*wgt),i=vi*3;positions[i]+=(sx/c-positions[i])*k;positions[i+1]+=(sy/c-positions[i+1])*k;positions[i+2]+=(sz/c-positions[i+2])*k}
+    }
+  }else if(tool==='flatten'){
+    let av=0;for(const [vi] of affected){let i=vi*3;av+=Math.hypot(positions[i],positions[i+1],positions[i+2])}av/=affected.length;
+    for(const [vi,wgt] of affected){let i=vi*3,l=Math.hypot(positions[i],positions[i+1],positions[i+2])||1,k=Math.min(.4,str*7*wgt),t=av/l;positions[i]+=positions[i]*(t-1)*k;positions[i+1]+=positions[i+1]*(t-1)*k;positions[i+2]+=positions[i+2]*(t-1)*k}
+  }else if(tool==='move'){
+    let e=cameraEye(), fx=-Math.sin(yaw),fz=Math.cos(yaw), rx=Math.cos(yaw),rz=Math.sin(yaw);
+    let scale=.0025*dist;
+    for(const [vi,wgt] of affected){let i=vi*3;positions[i]+=(-dx*rx+dy*fx*Math.sin(pitch))*scale*wgt;positions[i+1]+=-dy*Math.cos(pitch)*scale*wgt;positions[i+2]+=(-dx*rz+dy*fz*Math.sin(pitch))*scale*wgt}
+  }else{
+    let sign=(tool==='deflate'?-1:1)*(alt?-1:1);
+    for(const [vi,wgt] of affected){let i=vi*3;positions[i]+=normals[i]*str*wgt*sign;positions[i+1]+=normals[i+1]*str*wgt*sign;positions[i+2]+=normals[i+2]*str*wgt*sign}
+  }
+  if(sym.checked){
+    const eps=.035;
+    for(const [vi,wgt] of affected){
+      const i=vi*3,x=positions[i],y=positions[i+1],z=positions[i+2];
+      let best=-1,bd=1e9;
+      for(let j=0;j<positions.length;j+=3){
+        let d=Math.abs(positions[j]+x)+Math.abs(positions[j+1]-y)+Math.abs(positions[j+2]-z);
+        if(d<bd){bd=d;best=j}
+      }
+      if(best>=0&&bd<.18){positions[best]=-x;positions[best+1]=y;positions[best+2]=z}
+    }
+  }
+  updateBuffers();
+}
+function render(){
+  resize();
+  gl.enable(gl.DEPTH_TEST);gl.enable(gl.CULL_FACE);gl.cullFace(gl.BACK);
+  gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+  const {mv,mvp}=getMatrices();
+  gl.useProgram(prog);gl.uniformMatrix4fv(loc.mv,false,new Float32Array(mv));gl.uniformMatrix4fv(loc.mvp,false,new Float32Array(mvp));
+  gl.uniform1i(loc.mode,shade.value==='normal'?1:shade.value==='matcap'?2:0);
+  gl.bindBuffer(gl.ARRAY_BUFFER,pbuf);gl.enableVertexAttribArray(loc.pos);gl.vertexAttribPointer(loc.pos,3,gl.FLOAT,false,0,0);
+  gl.bindBuffer(gl.ARRAY_BUFFER,nbuf);gl.enableVertexAttribArray(loc.nor);gl.vertexAttribPointer(loc.nor,3,gl.FLOAT,false,0,0);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ibuf);gl.drawElements(gl.TRIANGLES,indices.length,gl.UNSIGNED_SHORT,0);
+  if(wire.checked){
+    gl.disable(gl.CULL_FACE);gl.uniform1i(loc.mode,1);gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,lbuf);gl.drawElements(gl.LINES,edges.length,gl.UNSIGNED_SHORT,0);
+  }
+  requestAnimationFrame(render);
+}
+function resize(){
+  const d=Math.min(devicePixelRatio||1,2),w=Math.floor(canvas.clientWidth*d),h=Math.floor(canvas.clientHeight*d);
+  if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;gl.viewport(0,0,w,h)}
+}
+const radius=document.getElementById('radius'),strength=document.getElementById('strength'),falloff=document.getElementById('falloff'),sym=document.getElementById('sym'),wire=document.getElementById('wire'),shade=document.getElementById('shade'),ring=document.getElementById('ring');
+function vals(){radiusV.textContent=radius.value+' px';strengthV.textContent=strength.value+'%';falloffV.textContent=falloff.value}
+[radius,strength,falloff].forEach(e=>e.oninput=vals);vals();
+
+canvas.addEventListener('pointerdown',e=>{
+  e.preventDefault();lastX=e.clientX;lastY=e.clientY;
+  if(e.button===2){rotating=true}else if(e.button===0){sculpting=true;strokeStart=positions.slice();sculpt(e.offsetX,e.offsetY,e.altKey,0,0)}
+  canvas.setPointerCapture(e.pointerId)
+});
+canvas.addEventListener('pointermove',e=>{
+  const r=view.getBoundingClientRect(), rr=+radius.value;ring.style.width=ring.style.height=rr*2+'px';ring.style.left=(e.clientX-r.left-rr)+'px';ring.style.top=(e.clientY-r.top-rr)+'px';ring.style.display='block';
+  const dx=e.clientX-lastX,dy=e.clientY-lastY;
+  if(rotating){yaw-=dx*.008;pitch=Math.max(-1.35,Math.min(1.35,pitch-dy*.008))}
+  if(sculpting)sculpt(e.offsetX,e.offsetY,e.altKey,dx,dy);
+  lastX=e.clientX;lastY=e.clientY;
+});
+canvas.addEventListener('pointerup',e=>{
+  if(sculpting&&strokeStart){history.push(strokeStart);if(history.length>20)history.shift();future=[]}
+  sculpting=false;rotating=false;strokeStart=null;try{canvas.releasePointerCapture(e.pointerId)}catch{}
+});
+canvas.addEventListener('pointerleave',()=>ring.style.display='none');
+canvas.addEventListener('contextmenu',e=>e.preventDefault());
+canvas.addEventListener('wheel',e=>{e.preventDefault();dist*=Math.exp(e.deltaY*.001);dist=Math.max(2,Math.min(9,dist))},{passive:false});
+
+document.querySelectorAll('[data-tool]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-tool]').forEach(x=>x.classList.remove('active'));b.classList.add('active');tool=b.dataset.tool;status.textContent='Brush: '+tool});
+sphereBtn.onclick=()=>makeSphere(+res.value);
+rebuildBtn.onclick=()=>makeSphere(+res.value);
+resetBtn.onclick=()=>{positions=basePos.slice();updateBuffers();history=[];future=[]};
+frameBtn.onclick=()=>{yaw=.35;pitch=.12;dist=4};
+undoBtn.onclick=()=>{if(!history.length)return;future.push(positions.slice());positions=history.pop();updateBuffers()};
+redoBtn.onclick=()=>{if(!future.length)return;history.push(positions.slice());positions=future.pop();updateBuffers()};
+exportBtn.onclick=()=>{
+  let s='# SculptLab OBJ\n';
+  for(let i=0;i<positions.length;i+=3)s+=`v ${positions[i]} ${positions[i+1]} ${positions[i+2]}\n`;
+  for(let i=0;i<indices.length;i+=3)s+=`f ${indices[i]+1} ${indices[i+1]+1} ${indices[i+2]+1}\n`;
+  const blob=new Blob([s],{type:'text/plain'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='sculpt.obj';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+};
+window.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();(e.shiftKey?redoBtn:undoBtn).click()};if(e.key.toLowerCase()==='f')frameBtn.click()});
+makeSphere(+res.value);render();
+})();
+</script>
+</body></html>

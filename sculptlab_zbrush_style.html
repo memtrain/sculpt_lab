@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>SculptLab — Browser Sculpting</title>
+<style>
+  :root{
+    --bg:#15171a;--panel:#202328;--panel2:#292d33;--line:#383d45;
+    --text:#eef1f5;--muted:#9aa3ad;--accent:#f28d35;--accent2:#ffb36f;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;overflow:hidden;background:var(--bg);color:var(--text);
+    font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+  button,input,select{font:inherit}
+  #app{height:100%;display:grid;grid-template-rows:48px 1fr 28px}
+  header{display:flex;align-items:center;gap:10px;padding:0 12px;background:#1b1e22;border-bottom:1px solid var(--line)}
+  .brand{font-weight:800;letter-spacing:.4px;margin-right:8px}
+  .brand b{color:var(--accent)}
+  .top-btn,.tool-btn{border:1px solid var(--line);background:var(--panel2);color:var(--text);border-radius:7px;padding:7px 10px;cursor:pointer}
+  .top-btn:hover,.tool-btn:hover{border-color:#59616d}
+  .top-btn.active,.tool-btn.active{background:#4b3423;border-color:var(--accent);color:#fff}
+  .spacer{flex:1}
+  .main{min-height:0;display:grid;grid-template-columns:72px 1fr 250px}
+  aside.left{background:#1c1f23;border-right:1px solid var(--line);padding:8px;display:flex;flex-direction:column;gap:7px}
+  .tool-btn{height:54px;padding:4px;font-size:11px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}
+  .tool-btn .ico{font-size:19px;line-height:1}
+  #viewport{position:relative;min-width:0;min-height:0;background:
+    radial-gradient(circle at 50% 42%,#333940 0,#24282e 28%,#181b1f 70%,#111315 100%)}
+  canvas{display:block;width:100%;height:100%}
+  .hint{position:absolute;left:14px;bottom:12px;padding:7px 9px;border-radius:6px;
+    background:#0008;color:#c9d0d8;font-size:12px;pointer-events:none}
+  .brush-ring{position:absolute;border:1px solid #fff9;border-radius:50%;pointer-events:none;display:none;mix-blend-mode:difference}
+  aside.right{background:#1c1f23;border-left:1px solid var(--line);overflow:auto;padding:10px}
+  .section{border:1px solid var(--line);background:#202328;border-radius:9px;margin-bottom:10px;overflow:hidden}
+  .section h3{font-size:12px;margin:0;padding:9px 10px;background:#292d33;color:#dce2e8;letter-spacing:.35px}
+  .section .body{padding:10px}
+  .row{display:grid;grid-template-columns:88px 1fr;align-items:center;gap:8px;margin:8px 0;font-size:12px}
+  .row label{color:#b6bec8}
+  input[type=range]{width:100%;accent-color:var(--accent)}
+  input[type=color]{width:100%;height:28px;background:none;border:0;padding:0}
+  select{width:100%;background:#17191c;border:1px solid var(--line);color:#eef;border-radius:6px;padding:6px}
+  .twocol{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+  .full{width:100%}
+  .value{font-variant-numeric:tabular-nums;color:#ffd0a5;font-size:11px;text-align:right}
+  footer{display:flex;align-items:center;gap:18px;padding:0 10px;background:#16181b;border-top:1px solid var(--line);font-size:11px;color:#9aa3ad}
+  #status{color:#dbe0e6}
+  .kbd{border:1px solid #515861;border-bottom-width:2px;border-radius:4px;padding:1px 4px;color:#ccd2d8}
+  @media(max-width:820px){.main{grid-template-columns:62px 1fr}.right{position:absolute!important;right:0;top:48px;bottom:28px;width:230px;z-index:5;opacity:.95}}
+</style>
+</head>
+<body>
+<div id="app">
+<header>
+  <div class="brand"><b>Sculpt</b>Lab</div>
+  <button class="top-btn" id="newSphere">Sphere</button>
+  <button class="top-btn" id="newCube">Cube</button>
+  <button class="top-btn" id="undoBtn">↶ Undo</button>
+  <button class="top-btn" id="redoBtn">↷ Redo</button>
+  <div class="spacer"></div>
+  <button class="top-btn" id="frameBtn">Frame</button>
+  <button class="top-btn" id="exportBtn">Export OBJ</button>
+</header>
+
+<div class="main">
+<aside class="left">
+  <button class="tool-btn active" data-tool="inflate"><span class="ico">⬆</span>Inflate</button>
+  <button class="tool-btn" data-tool="deflate"><span class="ico">⬇</span>Deflate</button>
+  <button class="tool-btn" data-tool="smooth"><span class="ico">≈</span>Smooth</button>
+  <button class="tool-btn" data-tool="flatten"><span class="ico">▰</span>Flatten</button>
+  <button class="tool-btn" data-tool="pinch"><span class="ico">✦</span>Pinch</button>
+  <button class="tool-btn" data-tool="move"><span class="ico">✋</span>Move</button>
+</aside>
+
+<div id="viewport">
+  <div id="brushRing" class="brush-ring"></div>
+  <div class="hint"><span class="kbd">拖曳</span> 雕刻　<span class="kbd">Alt+拖曳</span> 反向　<span class="kbd">右鍵</span> 旋轉　<span class="kbd">滾輪</span> 縮放</div>
+</div>
+
+<aside class="right">
+  <div class="section">
+    <h3>BRUSH</h3>
+    <div class="body">
+      <div class="row"><label>Radius</label><div><input id="radius" type="range" min="0.03" max="0.6" step="0.01" value="0.22"><div class="value" id="radiusV"></div></div></div>
+      <div class="row"><label>Strength</label><div><input id="strength" type="range" min="0.001" max="0.12" step="0.001" value="0.035"><div class="value" id="strengthV"></div></div></div>
+      <div class="row"><label>Falloff</label><div><input id="falloff" type="range" min="0.5" max="4" step="0.1" value="2"><div class="value" id="falloffV"></div></div></div>
+      <div class="row"><label>Spacing</label><div><input id="spacing" type="range" min="1" max="20" step="1" value="4"><div class="value" id="spacingV"></div></div></div>
+      <div class="row"><label>Symmetry X</label><input id="symmetry" type="checkbox" checked></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h3>MATERIAL / VIEW</h3>
+    <div class="body">
+      <div class="row"><label>Color</label><input id="color" type="color" value="#b78b6f"></div>
+      <div class="row"><label>Roughness</label><input id="roughness" type="range" min="0" max="1" step="0.01" value="0.78"></div>
+      <div class="row"><label>Metalness</label><input id="metalness" type="range" min="0" max="1" step="0.01" value="0.02"></div>
+      <div class="row"><label>Wireframe</label><input id="wire" type="checkbox"></div>
+      <div class="row"><label>Grid</label><input id="grid" type="checkbox" checked></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h3>MESH</h3>
+    <div class="body">
+      <div class="row"><label>Resolution</label>
+        <select id="resolution">
+          <option value="48">Low</option><option value="72" selected>Medium</option><option value="96">High</option><option value="128">Very High</option>
+        </select>
+      </div>
+      <button class="top-btn full" id="subdivideBtn">Subdivide / Rebuild</button>
+      <div style="height:7px"></div>
+      <div class="twocol">
+        <button class="top-btn" id="resetBtn">Reset</button>
+        <button class="top-btn" id="centerBtn">Center</button>
+      </div>
+    </div>
+  </div>
+</aside>
+</div>
+
+<footer>
+  <span id="status">Ready</span>
+  <span id="poly">Vertices: 0</span>
+  <span>WebGL sculpt prototype</span>
+</footer>
+</div>
+
+<script type="importmap">
+{"imports":{
+ "three":"https://unpkg.com/three@0.180.0/build/three.module.js",
+ "three/addons/":"https://unpkg.com/three@0.180.0/examples/jsm/"
+}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { OBJExporter } from 'three/addons/exporters/OBJExporter.js';
+
+const viewport=document.getElementById('viewport');
+const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(viewport.clientWidth,viewport.clientHeight);
+renderer.shadowMap.enabled=true;
+viewport.prepend(renderer.domElement);
+
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(40,viewport.clientWidth/viewport.clientHeight,.01,100);
+camera.position.set(0,0.2,4.4);
+
+const controls=new OrbitControls(camera,renderer.domElement);
+controls.enableDamping=true;
+controls.dampingFactor=.08;
+controls.enablePan=true;
+controls.mouseButtons={LEFT:null,MIDDLE:THREE.MOUSE.PAN,RIGHT:THREE.MOUSE.ROTATE};
+controls.minDistance=1.3; controls.maxDistance=12;
+
+scene.add(new THREE.HemisphereLight(0xffffff,0x30251f,2.2));
+const key=new THREE.DirectionalLight(0xffffff,3.2); key.position.set(3,4,4); scene.add(key);
+const rim=new THREE.DirectionalLight(0xff9b5b,1.2); rim.position.set(-4,1,-3); scene.add(rim);
+
+let grid=new THREE.GridHelper(8,24,0x666666,0x343434); grid.position.y=-1.45; scene.add(grid);
+
+const mat=new THREE.MeshStandardMaterial({color:0xb78b6f,roughness:.78,metalness:.02,side:THREE.DoubleSide});
+let mesh=null, basePositions=null, currentShape='sphere';
+
+function makeGeometry(shape='sphere', seg=72){
+  let g;
+  if(shape==='sphere'){
+    g=new THREE.SphereGeometry(1.25,seg,Math.max(24,Math.floor(seg*.66)));
+  } else {
+    g=new THREE.BoxGeometry(2,2,2,Math.max(4,Math.floor(seg/8)),Math.max(4,Math.floor(seg/8)),Math.max(4,Math.floor(seg/8)));
+    // make slightly rounded-looking by normalizing corners less aggressively
+    const p=g.attributes.position;
+    for(let i=0;i<p.count;i++){
+      const v=new THREE.Vector3().fromBufferAttribute(p,i);
+      const max=Math.max(Math.abs(v.x),Math.abs(v.y),Math.abs(v.z));
+      v.multiplyScalar(1.1/max);
+      p.setXYZ(i,v.x,v.y,v.z);
+    }
+  }
+  g.deleteAttribute('uv');
+  g.computeVertexNormals();
+  return g;
+}
+function setMesh(shape=currentShape){
+  currentShape=shape;
+  if(mesh){scene.remove(mesh);mesh.geometry.dispose();}
+  const seg=+document.getElementById('resolution').value;
+  mesh=new THREE.Mesh(makeGeometry(shape,seg),mat);
+  mesh.castShadow=true; mesh.receiveShadow=true;
+  scene.add(mesh);
+  basePositions=new Float32Array(mesh.geometry.attributes.position.array);
+  history=[]; future=[];
+  updatePoly(); frame();
+}
+function updatePoly(){document.getElementById('poly').textContent=`Vertices: ${mesh.geometry.attributes.position.count.toLocaleString()}`;}
+function frame(){controls.target.set(0,0,0);camera.position.set(0,0.15,4.4);controls.update();}
+setMesh('sphere');
+
+const raycaster=new THREE.Raycaster(), pointer=new THREE.Vector2();
+let tool='inflate', sculpting=false, lastX=0,lastY=0, strokeMoved=false;
+let history=[],future=[], strokeStart=null;
+const ring=document.getElementById('brushRing');
+
+function snapshot(){return new Float32Array(mesh.geometry.attributes.position.array);}
+function restore(arr){
+  mesh.geometry.attributes.position.array.set(arr);
+  mesh.geometry.attributes.position.needsUpdate=true;
+  mesh.geometry.computeVertexNormals();
+  mesh.geometry.attributes.normal.needsUpdate=true;
+}
+function pushHistory(){
+  if(!strokeStart)return;
+  history.push(strokeStart); if(history.length>25)history.shift(); future=[];
+  strokeStart=null;
+}
+
+function getHit(e){
+  const r=renderer.domElement.getBoundingClientRect();
+  pointer.x=((e.clientX-r.left)/r.width)*2-1;
+  pointer.y=-((e.clientY-r.top)/r.height)*2+1;
+  raycaster.setFromCamera(pointer,camera);
+  return raycaster.intersectObject(mesh,false)[0]||null;
+}
+
+const tmpV=new THREE.Vector3(), tmpN=new THREE.Vector3(), center=new THREE.Vector3(), avg=new THREE.Vector3();
+const normalMatrix=new THREE.Matrix3();
+
+function sculptAt(hit, inverse=false){
+  if(!hit)return;
+  const pos=mesh.geometry.attributes.position, nor=mesh.geometry.attributes.normal;
+  const radius=+radiusEl.value, strength=+strengthEl.value, fall=+falloffEl.value;
+  const localPoint=mesh.worldToLocal(hit.point.clone());
+  const sym=document.getElementById('symmetry').checked;
+  const centers=[localPoint];
+  if(sym && Math.abs(localPoint.x)>.0001) centers.push(localPoint.clone().setX(-localPoint.x));
+
+  const affected=[];
+  for(let i=0;i<pos.count;i++){
+    tmpV.fromBufferAttribute(pos,i);
+    let best=Infinity, chosen=null;
+    for(const c of centers){const d=tmpV.distanceTo(c);if(d<best){best=d;chosen=c;}}
+    if(best>radius)continue;
+    let w=Math.pow(1-best/radius,fall);
+    affected.push([i,best,w,chosen]);
+  }
+  if(!affected.length)return;
+
+  if(tool==='smooth'){
+    avg.set(0,0,0);
+    for(const [i] of affected){avg.add(tmpV.fromBufferAttribute(pos,i));}
+    avg.multiplyScalar(1/affected.length);
+    for(const [i,d,w] of affected){
+      tmpV.fromBufferAttribute(pos,i);
+      tmpV.lerp(avg,Math.min(.32,strength*5)*w);
+      pos.setXYZ(i,tmpV.x,tmpV.y,tmpV.z);
+    }
+  } else if(tool==='flatten'){
+    const n=hit.face.normal.clone().normalize();
+    const plane=new THREE.Plane().setFromNormalAndCoplanarPoint(n,localPoint);
+    for(const [i,d,w] of affected){
+      tmpV.fromBufferAttribute(pos,i);
+      const dist=plane.distanceToPoint(tmpV);
+      tmpV.addScaledVector(n,-dist*Math.min(1,strength*9)*w);
+      pos.setXYZ(i,tmpV.x,tmpV.y,tmpV.z);
+    }
+  } else if(tool==='pinch'){
+    for(const [i,d,w,c] of affected){
+      tmpV.fromBufferAttribute(pos,i);
+      tmpV.lerp(c,Math.min(.22,strength*4)*w);
+      pos.setXYZ(i,tmpV.x,tmpV.y,tmpV.z);
+    }
+  } else if(tool==='move'){
+    const dx=(lastX-currentEvtX)*0.0019, dy=(currentEvtY-lastY)*0.0019;
+    const right=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0);
+    const up=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,1);
+    const delta=right.multiplyScalar(-dx*8).add(up.multiplyScalar(-dy*8));
+    mesh.worldToLocal(delta.add(mesh.position)); delta.sub(mesh.position);
+    for(const [i,d,w] of affected){
+      tmpV.fromBufferAttribute(pos,i).addScaledVector(delta,w);
+      pos.setXYZ(i,tmpV.x,tmpV.y,tmpV.z);
+    }
+  } else {
+    const sign=((tool==='deflate')?-1:1)*(inverse?-1:1);
+    for(const [i,d,w] of affected){
+      tmpV.fromBufferAttribute(pos,i); tmpN.fromBufferAttribute(nor,i).normalize();
+      tmpV.addScaledVector(tmpN,strength*w*sign);
+      pos.setXYZ(i,tmpV.x,tmpV.y,tmpV.z);
+    }
+  }
+  pos.needsUpdate=true;
+  mesh.geometry.computeVertexNormals();
+  mesh.geometry.attributes.normal.needsUpdate=true;
+  mesh.geometry.computeBoundingSphere();
+}
+let currentEvtX=0,currentEvtY=0, moveCounter=0;
+renderer.domElement.addEventListener('pointerdown',e=>{
+  if(e.button!==0)return;
+  const hit=getHit(e); if(!hit)return;
+  e.preventDefault(); sculpting=true; controls.enabled=false; strokeMoved=false;
+  lastX=e.clientX;lastY=e.clientY;currentEvtX=e.clientX;currentEvtY=e.clientY; moveCounter=0;
+  strokeStart=snapshot();
+  sculptAt(hit,e.altKey); strokeMoved=true;
+  renderer.domElement.setPointerCapture(e.pointerId);
+});
+renderer.domElement.addEventListener('pointermove',e=>{
+  const rect=viewport.getBoundingClientRect(), radiusPx=(+radiusEl.value/2.5)*Math.min(rect.width,rect.height);
+  ring.style.width=ring.style.height=(radiusPx*2)+'px';
+  ring.style.left=(e.clientX-rect.left-radiusPx)+'px'; ring.style.top=(e.clientY-rect.top-radiusPx)+'px';
+  ring.style.display='block';
+  if(!sculpting)return;
+  currentEvtX=e.clientX;currentEvtY=e.clientY;
+  moveCounter++;
+  if(moveCounter%(+spacingEl.value)!==0)return;
+  const hit=getHit(e); sculptAt(hit,e.altKey); strokeMoved=true;
+  lastX=e.clientX;lastY=e.clientY;
+});
+renderer.domElement.addEventListener('pointerleave',()=>ring.style.display='none');
+renderer.domElement.addEventListener('pointerup',e=>{
+  if(!sculpting)return; sculpting=false;controls.enabled=true;
+  if(strokeMoved)pushHistory(); else strokeStart=null;
+  try{renderer.domElement.releasePointerCapture(e.pointerId)}catch{}
+});
+renderer.domElement.addEventListener('contextmenu',e=>e.preventDefault());
+
+document.querySelectorAll('[data-tool]').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('[data-tool]').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active'); tool=b.dataset.tool; document.getElementById('status').textContent='Brush: '+b.textContent.trim();
+});
+
+const radiusEl=document.getElementById('radius'), strengthEl=document.getElementById('strength'),
+falloffEl=document.getElementById('falloff'), spacingEl=document.getElementById('spacing');
+function bindVal(id,suffix=''){const e=document.getElementById(id),v=document.getElementById(id+'V');const f=()=>v.textContent=e.value+suffix;e.oninput=f;f();}
+bindVal('radius');bindVal('strength');bindVal('falloff');bindVal('spacing',' px');
+
+document.getElementById('color').oninput=e=>mat.color.set(e.target.value);
+document.getElementById('roughness').oninput=e=>mat.roughness=+e.target.value;
+document.getElementById('metalness').oninput=e=>mat.metalness=+e.target.value;
+document.getElementById('wire').onchange=e=>mat.wireframe=e.target.checked;
+document.getElementById('grid').onchange=e=>grid.visible=e.target.checked;
+
+document.getElementById('newSphere').onclick=()=>setMesh('sphere');
+document.getElementById('newCube').onclick=()=>setMesh('cube');
+document.getElementById('frameBtn').onclick=frame;
+document.getElementById('subdivideBtn').onclick=()=>setMesh(currentShape);
+document.getElementById('resetBtn').onclick=()=>setMesh(currentShape);
+document.getElementById('centerBtn').onclick=()=>{mesh.geometry.center();mesh.geometry.computeVertexNormals();frame();};
+
+document.getElementById('undoBtn').onclick=()=>{
+  if(!history.length)return;
+  future.push(snapshot()); restore(history.pop());
+};
+document.getElementById('redoBtn').onclick=()=>{
+  if(!future.length)return;
+  history.push(snapshot()); restore(future.pop());
+};
+
+document.getElementById('exportBtn').onclick=()=>{
+  const exporter=new OBJExporter();
+  const data=exporter.parse(mesh);
+  const blob=new Blob([data],{type:'text/plain'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='sculptlab-model.obj';a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+};
+
+window.addEventListener('keydown',e=>{
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();e.shiftKey?document.getElementById('redoBtn').click():document.getElementById('undoBtn').click();}
+  if(e.key.toLowerCase()==='f')frame();
+});
+new ResizeObserver(()=>{
+  const w=viewport.clientWidth,h=viewport.clientHeight;
+  camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h);
+}).observe(viewport);
+
+function animate(){
+  controls.update();
+  renderer.render(scene,camera);
+  requestAnimationFrame(animate);
+}
+animate();
+</script>
+</body>
+</html>
